@@ -50,7 +50,7 @@ class AIAgent:
         
         # Store request in context
         self.context['last_email'] = request.customer_message
-        self.context['last_tone'] = request.tone.value
+        self.context['last_tone'] = request.tone.value if request.tone else None
         self.context['last_timestamp'] = datetime.utcnow().isoformat()
         
         # Generate response using LangChain

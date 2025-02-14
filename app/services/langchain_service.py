@@ -8,6 +8,7 @@ from app.models.schemas import EmailRequest, EmailResponse, EmailResponseMetadat
 from typing import Optional, Dict
 import time
 import json
+from app.services.tone_detector import ToneDetector
 
 logger = get_logger()
 
@@ -31,6 +32,9 @@ class LangChainService:
             temperature=settings.TEMPERATURE,
             context_window=settings.MAX_TOKENS
         )
+        
+        # Initialize tone detector
+        self.tone_detector = ToneDetector()
         
         # Define a custom prompt template optimized for DeepScaleR's capabilities
         template = """You are an AI assistant powered by DeepScaleR, a state-of-the-art language model trained using distributed reinforcement learning. You excel at:
@@ -138,17 +142,42 @@ Generate the support agent's email response below:"""
         """
         start_time = time.time()
         try:
+            # Initialize tone variables
+            tone_detection_metadata = None
+            tone = request.tone.value if request.tone else None
+            
+            # Detect tone if not provided
+            if tone is None:
+                context_dict = request.context.dict() if request.context else {}
+                detected_tone, detection_metadata = self.tone_detector.detect_tone(
+                    request.customer_message,
+                    context_dict
+                )
+                tone = detected_tone
+                tone_detection_metadata = detection_metadata
+                logger.info(f"Auto-detected tone: {detected_tone}")
+            
+            # Ensure tone is valid and convert to ToneType
+            try:
+                tone_type = ToneType(tone)
+                tone_guidelines = TONE_GUIDELINES[tone_type]
+            except (ValueError, KeyError) as e:
+                logger.warning(f"Invalid tone '{tone}', falling back to professional")
+                tone_type = ToneType.PROFESSIONAL
+                tone = tone_type.value
+                tone_guidelines = TONE_GUIDELINES[tone_type]
+            
             # Format the prompt with context and tone
             context_str = self._format_context(request.context)
             prompt = self.email_template.format(
                 context=context_str,
-                tone_guidelines=TONE_GUIDELINES[request.tone],
+                tone_guidelines=tone_guidelines,
                 customer_message=request.customer_message,
-                max_length=request.max_length
+                max_length=request.max_length or 2048
             )
             
             # Generate response
-            logger.debug(f"Generating email response with tone: {request.tone}")
+            logger.debug(f"Generating email response with tone: {tone}")
             response = await self.llm.agenerate([prompt])
             message = response.generations[0][0].text.strip()
             
@@ -161,14 +190,15 @@ Generate the support agent's email response below:"""
             
             # Create metadata
             metadata = EmailResponseMetadata(
-                tone_used=request.tone,
+                tone_used=tone,
                 context_length=len(prompt),
                 generation_settings={
                     "temperature": settings.TEMPERATURE,
                     "max_tokens": settings.MAX_TOKENS,
                     "top_p": settings.TOP_P,
                     "top_k": settings.TOP_K
-                }
+                },
+                tone_detection=tone_detection_metadata
             )
             
             return EmailResponse(

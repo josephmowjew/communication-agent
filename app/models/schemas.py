@@ -33,6 +33,11 @@ class EmailContext(BaseModel):
     department: Optional[str] = Field(None, description="Department handling the request")
     additional_notes: Optional[str] = Field(None, description="Any additional context")
 
+class ToneDetectionMetadata(BaseModel):
+    detected_tone: str = Field(..., description="Detected tone value")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score of the detection")
+    factors: Dict[str, float] = Field(..., description="Factors considered in tone detection")
+
 class EmailRequest(BaseModel):
     customer_message: str = Field(
         ..., 
@@ -44,9 +49,9 @@ class EmailRequest(BaseModel):
         default=None,
         description="Additional context for response generation"
     )
-    tone: ToneType = Field(
-        default=ToneType.PROFESSIONAL,
-        description="Desired tone for the response"
+    tone: Optional[ToneType] = Field(
+        default=None,
+        description="Desired tone for the response. If not provided, will be auto-detected."
     )
     max_length: Optional[int] = Field(
         default=2048,
@@ -55,9 +60,10 @@ class EmailRequest(BaseModel):
     )
 
 class EmailResponseMetadata(BaseModel):
-    tone_used: ToneType = Field(..., description="Tone used in the response")
+    tone_used: str = Field(..., description="Tone used in the response")
     context_length: int = Field(..., description="Length of the context used")
     generation_settings: Dict[str, float] = Field(..., description="Model generation settings used")
+    tone_detection: Optional[ToneDetectionMetadata] = Field(None, description="Tone detection information if auto-detected")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 class EmailResponse(BaseModel):
